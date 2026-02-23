@@ -3,11 +3,11 @@ import glob
 import json
 from sentence_transformers import SentenceTransformer
 
-# 1. Configure paths
+# Paths
 CORPUS_DIR = "data/toe_corpus"
 OUTPUT_FILE = "data/toe_embeddings.json"
 
-# 2. Load embedding model only when needed
+# Model name
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
 def get_model():
