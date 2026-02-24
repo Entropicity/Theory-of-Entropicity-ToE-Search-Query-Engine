@@ -6,9 +6,17 @@ from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 from typing import List
 import re
+import os
+import openai
 
+# -----------------------------
+# CONFIG
+# -----------------------------
 EMBEDDINGS_FILE = "data/toe_embeddings.json"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
+LLM_MODEL = "gpt-4o-mini"   # or any chat-capable model
+
+openai.api_key = os.getenv("OPENAI_API_KEY")
 
 app = FastAPI()
 
@@ -33,6 +41,9 @@ class ChatRequest(BaseModel):
     top_k: int = 5
 
 
+# -----------------------------
+# LOAD INDEX
+# -----------------------------
 def load_index():
     with open(EMBEDDINGS_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -41,13 +52,15 @@ def load_index():
     embeddings = np.array([d["embedding"] for d in data], dtype="float32")
     return texts, sources, embeddings
 
-
 print("Loading index and model...")
 TEXTS, SOURCES, EMBEDDINGS = load_index()
 MODEL = SentenceTransformer(MODEL_NAME)
 print(f"Loaded {len(TEXTS)} chunks.")
 
 
+# -----------------------------
+# SEARCH (RAG RETRIEVAL)
+# -----------------------------
 def search(query: str, top_k: int = 5):
     q_emb = MODEL.encode([query])[0]
     norms = np.linalg.norm(EMBEDDINGS, axis=1) * np.linalg.norm(q_emb)
@@ -63,77 +76,42 @@ def search(query: str, top_k: int = 5):
     return results
 
 
-# ------------------------------------------------------------
-# DEFINITION EXTRACTOR (primary)
-# ------------------------------------------------------------
-def extract_definition(text: str, query: str) -> str:
-    cleaned = re.sub(r"[#>*`]+", " ", text)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+# -----------------------------
+# GENERATIVE LAYER (LLM)
+# -----------------------------
+def generate_answer_with_llm(context: str, query: str) -> str:
+    """
+    Produces a coherent answer using retrieved context.
+    The LLM is instructed to stay grounded in the context.
+    """
+    system_prompt = (
+        "You are an expert explainer of the Theory of Entropicity (ToE). "
+        "You must answer ONLY using the context provided. "
+        "If the context does not clearly support an answer, say you are not sure."
+    )
 
-    sentences = re.split(r"[.!?]", cleaned)
-    sentences = [s.strip() for s in sentences if len(s.strip()) > 20]
+    user_prompt = (
+        f"Context:\n{context}\n\n"
+        f"Question:\n{query}\n\n"
+        "Write a clear, coherent answer in 2–4 sentences. "
+        "Do not mention the context or sources. Just answer directly."
+    )
 
-    if not sentences:
-        return ""
+    response = openai.ChatCompletion.create(
+        model=LLM_MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        temperature=0.2,
+    )
 
-    q_words = set(re.findall(r"\b[a-zA-Z]{4,}\b", query.lower()))
-
-    patterns = [
-        r"\bis\b",
-        r"\brefers to\b",
-        r"\bdefined as\b",
-        r"\bdescribes\b",
-        r"\bframework\b",
-        r"\btheory\b",
-        r"\bconcept\b",
-    ]
-
-    candidates = []
-    for s in sentences:
-        if len(q_words & set(s.lower().split())) == 0:
-            continue
-        if any(re.search(p, s.lower()) for p in patterns):
-            candidates.append(s)
-
-    if candidates:
-        best = max(candidates, key=len)
-        return best + "."
-
-    return ""
+    return response["choices"][0]["message"]["content"].strip()
 
 
-# ------------------------------------------------------------
-# FALLBACK QUERY‑AWARE SUMMARIZER
-# ------------------------------------------------------------
-def simple_summarize(text: str, query: str, max_sections: int = 4) -> str:
-    cleaned = re.sub(r"[#>*`]+", " ", text)
-    cleaned = re.sub(r"\s+", " ", cleaned).strip()
-
-    parts = re.split(r"[.!?]", cleaned)
-    parts = [p.strip() for p in parts if len(p.strip()) > 30]
-
-    if not parts:
-        return cleaned
-
-    q_words = set(re.findall(r"\b[a-zA-Z]{4,}\b", query.lower()))
-    def_keywords = {"is", "refers", "defined", "framework", "concept", "theory", "describes"}
-
-    def score(part):
-        p_words = set(re.findall(r"\b[a-zA-Z]{4,}\b", part.lower()))
-        overlap = len(q_words & p_words)
-        def_bonus = 1 if any(k in part.lower() for k in def_keywords) else 0
-        return overlap + def_bonus
-
-    ranked = sorted(parts, key=score, reverse=True)
-    selected = ranked[:max_sections]
-
-    summary = ". ".join(selected).strip()
-    if not summary.endswith("."):
-        summary += "."
-
-    return summary
-
-
+# -----------------------------
+# ENDPOINTS
+# -----------------------------
 @app.post("/search")
 def search_endpoint(req: SearchRequest):
     results = search(req.query, req.top_k)
@@ -148,36 +126,34 @@ def chat_endpoint(req: ChatRequest):
 
     query = user_messages[-1].content
 
+    # 1. Retrieve chunks
     results = search(query, req.top_k)
 
-    # Prefer the definition file if present
-    definition_hit = None
-    for r in results:
-        if "definition.md" in r["source"]:
-            definition_hit = r
-            break
+    # 2. Build context for LLM
+    context_text = ""
+    for i, r in enumerate(results):
+        context_text += f"[{i+1}] Source: {r['source']}\n{r['text']}\n\n"
 
-    if definition_hit is not None:
-        # Use only the definition text
-        summary = definition_hit["text"].strip()
-        used_results = [definition_hit]
-    else:
-        # Fall back to combined text + summarizer
+    # 3. Generate answer using LLM
+    try:
+        answer_text = generate_answer_with_llm(context_text, query)
+    except Exception as e:
+        # Fallback to extractive summarizer if LLM fails
         combined_text = "\n\n".join([r["text"] for r in results])
-        summary = simple_summarize(combined_text, query)
-        used_results = results
+        answer_text = simple_summarize(combined_text, query)
 
+    # 4. Build citations
     citations = "\n".join(
-        [f"[{i+1}] {r['source']} (score {r['score']:.3f})" for i, r in enumerate(used_results)]
+        [f"[{i+1}] {r['source']} (score {r['score']:.3f})" for i, r in enumerate(results)]
     )
 
     answer = (
-        f"{summary}\n\n"
+        f"{answer_text}\n\n"
         f"---\n"
         f"Sources:\n{citations}"
     )
 
     return {
         "answer": answer,
-        "contexts": used_results
+        "contexts": results
     }
