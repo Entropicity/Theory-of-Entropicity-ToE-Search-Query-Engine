@@ -64,22 +64,23 @@ def search(query: str, top_k: int = 5):
 
 
 # ------------------------------------------------------------
-# NEW ToE‑Optimized Summarizer (markdown-aware, structure-aware)
+# QUERY‑AWARE SUMMARIZER (markdown-aware, relevance-aware)
 # ------------------------------------------------------------
 def simple_summarize(text: str, query: str, max_sections: int = 4) -> str:
-    # Clean markdown
+    # Remove markdown symbols
     cleaned = re.sub(r"[#>*`]+", " ", text)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
-    # Break into semantic units
+    # Split on semantic boundaries
     parts = re.split(r"(?: - |\•|\–|: )", cleaned)
     parts = [p.strip() for p in parts if len(p.strip()) > 40]
 
     if not parts:
         return cleaned
 
-    # Score each part by overlap with query terms
+    # Score by overlap with query terms
     q_words = set(re.findall(r"\b[a-zA-Z]{4,}\b", query.lower()))
+
     def score(part):
         p_words = set(re.findall(r"\b[a-zA-Z]{4,}\b", part.lower()))
         return len(q_words & p_words)
@@ -87,7 +88,7 @@ def simple_summarize(text: str, query: str, max_sections: int = 4) -> str:
     ranked = sorted(parts, key=score, reverse=True)
     selected = ranked[:max_sections]
 
-    # Compress each selected part to its first sentence-like unit
+    # Compress each selected part
     compressed = []
     for p in selected:
         s = re.split(r"[.!?]", p)[0].strip()
@@ -100,6 +101,7 @@ def simple_summarize(text: str, query: str, max_sections: int = 4) -> str:
 
     return summary
 
+
 @app.post("/search")
 def search_endpoint(req: SearchRequest):
     results = search(req.query, req.top_k)
@@ -107,7 +109,7 @@ def search_endpoint(req: SearchRequest):
 
 
 @app.post("/chat")
-def chat_endpoint(req:ChatRequest):
+def chat_endpoint(req: ChatRequest):
     user_messages = [m for m in req.messages if m.role == "user"]
     if not user_messages:
         return {"answer": "No user message provided.", "contexts": []}
@@ -117,8 +119,8 @@ def chat_endpoint(req:ChatRequest):
     results = search(query, req.top_k)
     combined_text = "\n\n".join([r["text"] for r in results])
 
-    # NEW summarizer
-   summary = simple_summarize(combined_text, query)
+    # Corrected summarizer call
+    summary = simple_summarize(combined_text, query)
 
     citations = "\n".join(
         [f"[{i+1}] {r['source']} (score {r['score']:.3f})" for i, r in enumerate(results)]
