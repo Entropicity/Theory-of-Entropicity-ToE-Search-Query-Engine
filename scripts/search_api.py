@@ -7,8 +7,12 @@ from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 from typing import List
 
-# Load FLAN-T5 using text-generation (compatible with your environment)
-GENERATOR = pipeline("text-generation", model="google/flan-t5-small", pad_token_id=0)
+# Load FLAN‑T5 using text-generation (compatible with your environment)
+GENERATOR = pipeline(
+    "text-generation",
+    model="google/flan-t5-small",
+    pad_token_id=0
+)
 
 EMBEDDINGS_FILE = "data/toe_embeddings.json"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
@@ -73,19 +77,22 @@ def search_endpoint(req: SearchRequest):
 
 @app.post("/chat")
 def chat_endpoint(req: ChatRequest):
+    # Extract last user message
     user_messages = [m for m in req.messages if m.role == "user"]
     if not user_messages:
         return {"answer": "No user message provided.", "contexts": []}
 
     query = user_messages[-1].content
 
+    # Retrieve relevant chunks
     results = search(query, req.top_k)
 
+    # Combine retrieved chunks
     combined_text = "\n\n".join([r["text"] for r in results])
 
-    # Use FLAN-T5 for clean summarization
+    # Summarize using FLAN‑T5
     prompt = (
-        "Summarize the following content into a clear, concise explanation:\n\n"
+        "Summarize the following content clearly and concisely:\n\n"
         + combined_text
         + "\n\nSummary:"
     )
@@ -97,6 +104,7 @@ def chat_endpoint(req: ChatRequest):
         do_sample=False
     )[0]["generated_text"]
 
+    # Build citations
     citations = "\n".join(
         [f"[{i+1}] {r['source']} (score {r['score']:.3f})" for i, r in enumerate(results)]
     )
