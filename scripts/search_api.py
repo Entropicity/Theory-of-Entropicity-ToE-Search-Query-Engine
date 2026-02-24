@@ -8,7 +8,7 @@ from sentence_transformers import SentenceTransformer
 from typing import List  # ⭐ REQUIRED
 
 # Load summarizer
-SUMMARIZER = pipeline("summarization", model="facebook/bart-large-cnn")
+GENERATOR = pipeline("text-generation", model="gpt2")
 
 EMBEDDINGS_FILE = "data/toe_embeddings.json"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
@@ -73,7 +73,6 @@ def search_endpoint(req: SearchRequest):
 
 @app.post("/chat")
 def chat_endpoint(req: ChatRequest):
-    # Extract last user message
     user_messages = [m for m in req.messages if m.role == "user"]
     if not user_messages:
         return {"answer": "No user message provided.", "contexts": []}
@@ -83,18 +82,24 @@ def chat_endpoint(req: ChatRequest):
     # Retrieve relevant chunks
     results = search(query, req.top_k)
 
-    # Combine retrieved chunks into one text block
+    # Combine retrieved chunks
     combined_text = "\n\n".join([r["text"] for r in results])
 
-    # Summarize into a clean answer
-    summary = SUMMARIZER(
-        combined_text,
-        max_length=250,
-        min_length=80,
-        do_sample=False
-    )[0]["summary_text"]
+    # Generate a summary-style answer
+    prompt = (
+        "Summarize the following content into a clear, concise explanation:\n\n"
+        + combined_text
+        + "\n\nSummary:"
+    )
 
-    # Build final answer with citations
+    summary = GENERATOR(
+        prompt,
+        max_length=200,
+        num_return_sequences=1,
+        do_sample=False
+    )[0]["generated_text"]
+
+    # Build citations
     citations = "\n".join(
         [f"[{i+1}] {r['source']} (score {r['score']:.3f})" for i, r in enumerate(results)]
     )
