@@ -1,4 +1,3 @@
-from transformers import pipeline
 from fastapi.middleware.cors import CORSMiddleware
 import json
 import numpy as np
@@ -6,12 +5,6 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 from typing import List
-
-# ✅ Real summarizer (BART)
-GENERATOR = pipeline(
-    "summarization",
-    model="facebook/bart-large-cnn"
-)
 
 EMBEDDINGS_FILE = "data/toe_embeddings.json"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
@@ -47,6 +40,7 @@ def load_index():
     embeddings = np.array([d["embedding"] for d in data], dtype="float32")
     return texts, sources, embeddings
 
+
 print("Loading index and model...")
 TEXTS, SOURCES, EMBEDDINGS = load_index()
 MODEL = SentenceTransformer(MODEL_NAME)
@@ -66,6 +60,31 @@ def search(query: str, top_k: int = 5):
             "source": SOURCES[i],
         })
     return results
+
+
+# ------------------------------------------------------------
+# CLEAN RULE‑BASED SUMMARIZER (no models required)
+# ------------------------------------------------------------
+def simple_summarize(text: str, max_sentences: int = 4) -> str:
+    # Split into sentences
+    raw_sentences = text.replace("\n", " ").split(".")
+    sentences = [s.strip() for s in raw_sentences if len(s.strip()) > 20]
+
+    if not sentences:
+        return text.strip()
+
+    # Rank sentences by length (proxy for importance)
+    ranked = sorted(sentences, key=lambda s: -len(s))
+
+    # Select top N
+    selected = ranked[:max_sentences]
+
+    # Reassemble
+    summary = ". ".join(selected).strip()
+    if not summary.endswith("."):
+        summary += "."
+
+    return summary
 
 
 @app.post("/search")
@@ -89,13 +108,8 @@ def chat_endpoint(req: ChatRequest):
     # Combine retrieved chunks
     combined_text = "\n\n".join([r["text"] for r in results])
 
-    # ✅ Summarize using BART
-    summary = GENERATOR(
-        combined_text,
-        max_length=250,
-        min_length=80,
-        do_sample=False
-    )[0]["summary_text"]
+    # Summarize using rule‑based summarizer
+    summary = simple_summarize(combined_text)
 
     # Build citations
     citations = "\n".join(
