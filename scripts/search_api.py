@@ -76,12 +76,25 @@ def chat_endpoint(req: ChatRequest):
     # run semantic search
     results = search(query, req.top_k)
 
-    # simple stitched answer
-    answer_parts = [r["text"] for r in results]
-    answer = "\n\n".join(answer_parts)
+    # build a structured answer with intro + citations
+    intro = (
+        "Here is a response grounded in the most relevant ToE passages "
+        "I found for your question:\n"
+    )
+
+    answer_sections = []
+    for i, r in enumerate(results, start=1):
+        section = (
+            f"[{i}] Source: {r['source']}\n"
+            f"Score: {r['score']:.3f}\n\n"
+            f"{r['text']}"
+        )
+        answer_sections.append(section)
+
+    answer_body = "\n\n---\n\n".join(answer_sections)
+    answer = intro + "\n\n" + answer_body
 
     return {
         "answer": answer,
         "contexts": results
     }
-
