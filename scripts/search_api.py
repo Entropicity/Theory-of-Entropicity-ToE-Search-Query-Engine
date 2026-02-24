@@ -1,3 +1,4 @@
+from fastapi.middleware.cors import CORSMiddleware
 import json
 import numpy as np
 from fastapi import FastAPI
@@ -8,6 +9,14 @@ EMBEDDINGS_FILE = "data/toe_embeddings.json"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
 app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # allow all origins (for local dev)
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 class SearchRequest(BaseModel):
     query: str
