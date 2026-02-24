@@ -64,24 +64,58 @@ def search(query: str, top_k: int = 5):
 
 
 # ------------------------------------------------------------
-# QUERY‑AWARE SUMMARIZER (markdown-aware, relevance-aware)
+# DEFINITION EXTRACTOR (primary)
 # ------------------------------------------------------------
-def simple_summarize(text: str, query: str, max_sections: int = 4) -> str:
-    # Clean markdown
+def extract_definition(text: str, query: str) -> str:
     cleaned = re.sub(r"[#>*`]+", " ", text)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
-    # Break into semantic units
+    sentences = re.split(r"[.!?]", cleaned)
+    sentences = [s.strip() for s in sentences if len(s.strip()) > 20]
+
+    if not sentences:
+        return ""
+
+    q_words = set(re.findall(r"\b[a-zA-Z]{4,}\b", query.lower()))
+
+    patterns = [
+        r"\bis\b",
+        r"\brefers to\b",
+        r"\bdefined as\b",
+        r"\bdescribes\b",
+        r"\bframework\b",
+        r"\btheory\b",
+        r"\bconcept\b",
+    ]
+
+    candidates = []
+    for s in sentences:
+        if len(q_words & set(s.lower().split())) == 0:
+            continue
+        if any(re.search(p, s.lower()) for p in patterns):
+            candidates.append(s)
+
+    if candidates:
+        best = max(candidates, key=len)
+        return best + "."
+
+    return ""
+
+
+# ------------------------------------------------------------
+# FALLBACK QUERY‑AWARE SUMMARIZER
+# ------------------------------------------------------------
+def simple_summarize(text: str, query: str, max_sections: int = 4) -> str:
+    cleaned = re.sub(r"[#>*`]+", " ", text)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
     parts = re.split(r"[.!?]", cleaned)
     parts = [p.strip() for p in parts if len(p.strip()) > 30]
 
     if not parts:
         return cleaned
 
-    # Query words
     q_words = set(re.findall(r"\b[a-zA-Z]{4,}\b", query.lower()))
-
-    # Definition keywords
     def_keywords = {"is", "refers", "defined", "framework", "concept", "theory", "describes"}
 
     def score(part):
@@ -98,7 +132,6 @@ def simple_summarize(text: str, query: str, max_sections: int = 4) -> str:
         summary += "."
 
     return summary
-
 
 
 @app.post("/search")
@@ -118,8 +151,13 @@ def chat_endpoint(req: ChatRequest):
     results = search(query, req.top_k)
     combined_text = "\n\n".join([r["text"] for r in results])
 
-    # Corrected summarizer call
-    summary = simple_summarize(combined_text, query)
+    # 1. Try definition extraction first
+    definition = extract_definition(combined_text, query)
+
+    if definition:
+        summary = definition
+    else:
+        summary = simple_summarize(combined_text, query)
 
     citations = "\n".join(
         [f"[{i+1}] {r['source']} (score {r['score']:.3f})" for i, r in enumerate(results)]
