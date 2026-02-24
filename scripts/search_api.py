@@ -22,6 +22,15 @@ class SearchRequest(BaseModel):
     query: str
     top_k: int = 5
 
+class ChatMessage(BaseModel):
+    role: str   # "user" or "assistant"
+    content: str
+
+class ChatRequest(BaseModel):
+    messages: List[ChatMessage]
+    top_k: int = 5
+
+
 def load_index():
     with open(EMBEDDINGS_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -53,3 +62,25 @@ def search(query: str, top_k: int = 5):
 def search_endpoint(req: SearchRequest):
     results = search(req.query, req.top_k)
     return {"results": results}
+
+@app.post("/chat")
+def chat_endpoint(req: ChatRequest):
+    # get last user message
+    user_messages = [m for m in req.messages if m.role == "user"]
+    if not user_messages:
+        return {"answer": "No user message provided.", "contexts": []}
+
+    query = user_messages[-1].content
+
+    # run semantic search
+    results = search(query, req.top_k)
+
+    # simple stitched answer
+    answer_parts = [r["text"] for r in results]
+    answer = "\n\n".join(answer_parts)
+
+    return {
+        "answer": answer,
+        "contexts": results
+    }
+
