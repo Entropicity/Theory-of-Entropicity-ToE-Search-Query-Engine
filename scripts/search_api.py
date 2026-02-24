@@ -7,16 +7,14 @@ from sentence_transformers import SentenceTransformer
 from typing import List
 import re
 import os
-import openai
+import requests
 
 # -----------------------------
 # CONFIG
 # -----------------------------
 EMBEDDINGS_FILE = "data/toe_embeddings.json"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
-LLM_MODEL = "gpt-4o-mini"   # or any chat-capable model
-
-openai.api_key = os.getenv("OPENAI_API_KEY")
+OLLAMA_MODEL = "llama3"   # or "mistral", "phi3", etc.
 
 app = FastAPI()
 
@@ -77,36 +75,67 @@ def search(query: str, top_k: int = 5):
 
 
 # -----------------------------
-# GENERATIVE LAYER (LLM)
+# GENERATIVE LAYER (OLLAMA)
 # -----------------------------
 def generate_answer_with_llm(context: str, query: str) -> str:
     """
     Produces a coherent answer using retrieved context.
-    The LLM is instructed to stay grounded in the context.
+    Uses a local Ollama model (free, offline).
     """
-    system_prompt = (
-        "You are an expert explainer of the Theory of Entropicity (ToE). "
-        "You must answer ONLY using the context provided. "
-        "If the context does not clearly support an answer, say you are not sure."
+    prompt = f"""
+You are an expert explainer of the Theory of Entropicity (ToE).
+Use ONLY the context below to answer the question.
+If the context does not clearly support an answer, say you are not sure.
+
+Context:
+{context}
+
+Question:
+{query}
+
+Write a clear, coherent answer in 2–4 sentences.
+Do not mention the context or sources. Just answer directly.
+"""
+
+    response = requests.post(
+        "http://localhost:11434/api/generate",
+        json={"model": OLLAMA_MODEL, "prompt": prompt}
     )
 
-    user_prompt = (
-        f"Context:\n{context}\n\n"
-        f"Question:\n{query}\n\n"
-        "Write a clear, coherent answer in 2–4 sentences. "
-        "Do not mention the context or sources. Just answer directly."
-    )
+    data = response.json()
+    return data.get("response", "").strip()
 
-    response = openai.ChatCompletion.create(
-        model=LLM_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        temperature=0.2,
-    )
 
-    return response["choices"][0]["message"]["content"].strip()
+# -----------------------------
+# FALLBACK SUMMARIZER
+# -----------------------------
+def simple_summarize(text: str, query: str, max_sections: int = 4) -> str:
+    cleaned = re.sub(r"[#>*`]+", " ", text)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+
+    parts = re.split(r"[.!?]", cleaned)
+    parts = [p.strip() for p in parts if len(p.strip()) > 30]
+
+    if not parts:
+        return cleaned
+
+    q_words = set(re.findall(r"\b[a-zA-Z]{4,}\b", query.lower()))
+    def_keywords = {"is", "refers", "defined", "framework", "concept", "theory", "describes"}
+
+    def score(part):
+        p_words = set(re.findall(r"\b[a-zA-Z]{4,}\b", part.lower()))
+        overlap = len(q_words & p_words)
+        def_bonus = 1 if any(k in part.lower() for k in def_keywords) else 0
+        return overlap + def_bonus
+
+    ranked = sorted(parts, key=score, reverse=True)
+    selected = ranked[:max_sections]
+
+    summary = ". ".join(selected).strip()
+    if not summary.endswith("."):
+        summary += "."
+
+    return summary
 
 
 # -----------------------------
@@ -134,11 +163,10 @@ def chat_endpoint(req: ChatRequest):
     for i, r in enumerate(results):
         context_text += f"[{i+1}] Source: {r['source']}\n{r['text']}\n\n"
 
-    # 3. Generate answer using LLM
+    # 3. Generate answer using Ollama
     try:
         answer_text = generate_answer_with_llm(context_text, query)
     except Exception as e:
-        # Fallback to extractive summarizer if LLM fails
         combined_text = "\n\n".join([r["text"] for r in results])
         answer_text = simple_summarize(combined_text, query)
 
