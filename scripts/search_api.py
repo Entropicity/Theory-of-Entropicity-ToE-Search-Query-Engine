@@ -67,39 +67,38 @@ def search(query: str, top_k: int = 5):
 # QUERY‑AWARE SUMMARIZER (markdown-aware, relevance-aware)
 # ------------------------------------------------------------
 def simple_summarize(text: str, query: str, max_sections: int = 4) -> str:
-    # Remove markdown symbols
+    # Clean markdown
     cleaned = re.sub(r"[#>*`]+", " ", text)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
-    # Split on semantic boundaries
-    parts = re.split(r"(?: - |\•|\–|: )", cleaned)
-    parts = [p.strip() for p in parts if len(p.strip()) > 40]
+    # Break into semantic units
+    parts = re.split(r"[.!?]", cleaned)
+    parts = [p.strip() for p in parts if len(p.strip()) > 30]
 
     if not parts:
         return cleaned
 
-    # Score by overlap with query terms
+    # Query words
     q_words = set(re.findall(r"\b[a-zA-Z]{4,}\b", query.lower()))
+
+    # Definition keywords
+    def_keywords = {"is", "refers", "defined", "framework", "concept", "theory", "describes"}
 
     def score(part):
         p_words = set(re.findall(r"\b[a-zA-Z]{4,}\b", part.lower()))
-        return len(q_words & p_words)
+        overlap = len(q_words & p_words)
+        def_bonus = 1 if any(k in part.lower() for k in def_keywords) else 0
+        return overlap + def_bonus
 
     ranked = sorted(parts, key=score, reverse=True)
     selected = ranked[:max_sections]
 
-    # Compress each selected part
-    compressed = []
-    for p in selected:
-        s = re.split(r"[.!?]", p)[0].strip()
-        if len(s) > 20:
-            compressed.append(s)
-
-    summary = ". ".join(compressed)
+    summary = ". ".join(selected).strip()
     if not summary.endswith("."):
         summary += "."
 
     return summary
+
 
 
 @app.post("/search")
