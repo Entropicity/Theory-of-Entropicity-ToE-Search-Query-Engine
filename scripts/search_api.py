@@ -7,8 +7,8 @@ from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 from typing import List  # ⭐ REQUIRED
 
-# Load generator (GPT-2)
-GENERATOR = pipeline("text-generation", model="gpt2", pad_token_id=50256)
+# Load T5 summarizer (MUCH better than GPT-2 for your use case)
+GENERATOR = pipeline("text2text-generation", model="t5-small")
 
 EMBEDDINGS_FILE = "data/toe_embeddings.json"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
@@ -86,17 +86,11 @@ def chat_endpoint(req: ChatRequest):
     # Combine retrieved chunks
     combined_text = "\n\n".join([r["text"] for r in results])
 
-    # Generate a summary-style answer using GPT-2
-    prompt = (
-        "Summarize the following content into a clear, concise explanation:\n\n"
-        + combined_text
-        + "\n\nSummary:"
-    )
-
+    # ⭐ Generate a clean summary using T5
     summary = GENERATOR(
-        prompt,
+        f"summarize: {combined_text}",
         max_length=200,
-        num_return_sequences=1,
+        min_length=50,
         do_sample=False
     )[0]["generated_text"]
 
