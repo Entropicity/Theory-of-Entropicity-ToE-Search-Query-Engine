@@ -118,7 +118,7 @@ def chat_endpoint(req:ChatRequest):
     combined_text = "\n\n".join([r["text"] for r in results])
 
     # NEW summarizer
-    summary = simple_summarize(combined_text)
+   summary = simple_summarize(combined_text, query)
 
     citations = "\n".join(
         [f"[{i+1}] {r['source']} (score {r['score']:.3f})" for i, r in enumerate(results)]
