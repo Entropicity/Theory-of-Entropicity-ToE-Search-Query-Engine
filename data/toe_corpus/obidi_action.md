@@ -1,0 +1,1 @@
+The Obidi Action is the variational principle underlying the Theory of Entropicity. It defines the action functional whose extremization yields the Obidi Field Equations. The Obidi Action encodes the dynamics of entropic fields and governs how entropy gradients generate structure, curvature, and physical evolution within the entropic manifold.
