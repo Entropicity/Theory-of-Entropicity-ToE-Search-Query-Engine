@@ -66,37 +66,39 @@ def search(query: str, top_k: int = 5):
 # ------------------------------------------------------------
 # NEW ToE‑Optimized Summarizer (markdown-aware, structure-aware)
 # ------------------------------------------------------------
-def simple_summarize(text: str, max_sections: int = 4) -> str:
-    # Remove markdown symbols
+def simple_summarize(text: str, query: str, max_sections: int = 4) -> str:
+    # Clean markdown
     cleaned = re.sub(r"[#>*`]+", " ", text)
     cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
-    # Split on semantic boundaries: headings, bullets, colons, list markers
+    # Break into semantic units
     parts = re.split(r"(?: - |\•|\–|: )", cleaned)
     parts = [p.strip() for p in parts if len(p.strip()) > 40]
 
     if not parts:
         return cleaned
 
-    # Rank parts by length (proxy for importance)
-    ranked = sorted(parts, key=lambda p: -len(p))
+    # Score each part by overlap with query terms
+    q_words = set(re.findall(r"\b[a-zA-Z]{4,}\b", query.lower()))
+    def score(part):
+        p_words = set(re.findall(r"\b[a-zA-Z]{4,}\b", part.lower()))
+        return len(q_words & p_words)
+
+    ranked = sorted(parts, key=score, reverse=True)
     selected = ranked[:max_sections]
 
     # Compress each selected part to its first sentence-like unit
     compressed = []
     for p in selected:
-        s = re.split(r"[.!?]", p)[0]
-        s = s.strip()
+        s = re.split(r"[.!?]", p)[0].strip()
         if len(s) > 20:
             compressed.append(s)
 
-    # Final assembly
     summary = ". ".join(compressed)
     if not summary.endswith("."):
         summary += "."
 
     return summary
-
 
 @app.post("/search")
 def search_endpoint(req: SearchRequest):
