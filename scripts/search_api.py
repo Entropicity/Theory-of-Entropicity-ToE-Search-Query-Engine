@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 from typing import List
+import re
 
 EMBEDDINGS_FILE = "data/toe_embeddings.json"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
@@ -63,24 +64,34 @@ def search(query: str, top_k: int = 5):
 
 
 # ------------------------------------------------------------
-# CLEAN RULE‑BASED SUMMARIZER (no models required)
+# NEW ToE‑Optimized Summarizer (markdown-aware, structure-aware)
 # ------------------------------------------------------------
-def simple_summarize(text: str, max_sentences: int = 4) -> str:
-    # Split into sentences
-    raw_sentences = text.replace("\n", " ").split(".")
-    sentences = [s.strip() for s in raw_sentences if len(s.strip()) > 20]
+def simple_summarize(text: str, max_sections: int = 4) -> str:
+    # Remove markdown symbols
+    cleaned = re.sub(r"[#>*`]+", " ", text)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
 
-    if not sentences:
-        return text.strip()
+    # Split on semantic boundaries: headings, bullets, colons, list markers
+    parts = re.split(r"(?: - |\•|\–|: )", cleaned)
+    parts = [p.strip() for p in parts if len(p.strip()) > 40]
 
-    # Rank sentences by length (proxy for importance)
-    ranked = sorted(sentences, key=lambda s: -len(s))
+    if not parts:
+        return cleaned
 
-    # Select top N
-    selected = ranked[:max_sentences]
+    # Rank parts by length (proxy for importance)
+    ranked = sorted(parts, key=lambda p: -len(p))
+    selected = ranked[:max_sections]
 
-    # Reassemble
-    summary = ". ".join(selected).strip()
+    # Compress each selected part to its first sentence-like unit
+    compressed = []
+    for p in selected:
+        s = re.split(r"[.!?]", p)[0]
+        s = s.strip()
+        if len(s) > 20:
+            compressed.append(s)
+
+    # Final assembly
+    summary = ". ".join(compressed)
     if not summary.endswith("."):
         summary += "."
 
@@ -94,7 +105,7 @@ def search_endpoint(req: SearchRequest):
 
 
 @app.post("/chat")
-def chat_endpoint(req: ChatRequest):
+def chat_endpoint(req:ChatRequest):
     user_messages = [m for m in req.messages if m.role == "user"]
     if not user_messages:
         return {"answer": "No user message provided.", "contexts": []}
