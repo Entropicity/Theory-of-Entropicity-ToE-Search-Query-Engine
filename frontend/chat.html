@@ -1,1 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Theory of Entropicity (ToE) – Chat</title>
+  <link rel="stylesheet" href="chat.css" />
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>Theory of Entropicity (ToE) – Chat</h1>
+      <p>Ask questions and receive responses grounded in the Obidi ToE corpus.</p>
+    </header>
+
+    <main>
+      <div id="chat-window" class="chat-window"></div>
+
+      <div class="input-row">
+        <textarea id="chat-input" placeholder="Ask something about ToE..."></textarea>
+        <button id="send-btn">Send</button>
+      </div>
+    </main>
+
+    <footer>
+      <small>Backed by the Obidi ToE embeddings API at <code>http://127.0.0.1:8000/chat</code></small>
+    </footer>
+  </div>
+
+  <script src="chat.js"></script>
+</body>
+</html>
 
