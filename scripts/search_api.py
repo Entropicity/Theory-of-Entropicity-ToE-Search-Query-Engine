@@ -5,10 +5,10 @@ import numpy as np
 from fastapi import FastAPI
 from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
-from typing import List  # ⭐ REQUIRED
+from typing import List
 
-# Load T5 summarizer (MUCH better than GPT-2 for your use case)
-GENERATOR = pipeline("text2text-generation", model="t5-small")
+# Load FLAN-T5 using text-generation (compatible with your environment)
+GENERATOR = pipeline("text-generation", model="google/flan-t5-small", pad_token_id=0)
 
 EMBEDDINGS_FILE = "data/toe_embeddings.json"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
@@ -73,28 +73,30 @@ def search_endpoint(req: SearchRequest):
 
 @app.post("/chat")
 def chat_endpoint(req: ChatRequest):
-    # Extract last user message
     user_messages = [m for m in req.messages if m.role == "user"]
     if not user_messages:
         return {"answer": "No user message provided.", "contexts": []}
 
     query = user_messages[-1].content
 
-    # Retrieve relevant chunks
     results = search(query, req.top_k)
 
-    # Combine retrieved chunks
     combined_text = "\n\n".join([r["text"] for r in results])
 
-    # ⭐ Generate a clean summary using T5
+    # Use FLAN-T5 for clean summarization
+    prompt = (
+        "Summarize the following content into a clear, concise explanation:\n\n"
+        + combined_text
+        + "\n\nSummary:"
+    )
+
     summary = GENERATOR(
-        f"summarize: {combined_text}",
-        max_length=200,
-        min_length=50,
+        prompt,
+        max_length=256,
+        num_return_sequences=1,
         do_sample=False
     )[0]["generated_text"]
 
-    # Build citations
     citations = "\n".join(
         [f"[{i+1}] {r['source']} (score {r['score']:.3f})" for i, r in enumerate(results)]
     )
