@@ -149,18 +149,26 @@ def chat_endpoint(req: ChatRequest):
     query = user_messages[-1].content
 
     results = search(query, req.top_k)
-    combined_text = "\n\n".join([r["text"] for r in results])
 
-    # 1. Try definition extraction first
-    definition = extract_definition(combined_text, query)
+    # Prefer the definition file if present
+    definition_hit = None
+    for r in results:
+        if "definition.md" in r["source"]:
+            definition_hit = r
+            break
 
-    if definition:
-        summary = definition
+    if definition_hit is not None:
+        # Use only the definition text
+        summary = definition_hit["text"].strip()
+        used_results = [definition_hit]
     else:
+        # Fall back to combined text + summarizer
+        combined_text = "\n\n".join([r["text"] for r in results])
         summary = simple_summarize(combined_text, query)
+        used_results = results
 
     citations = "\n".join(
-        [f"[{i+1}] {r['source']} (score {r['score']:.3f})" for i, r in enumerate(results)]
+        [f"[{i+1}] {r['source']} (score {r['score']:.3f})" for i, r in enumerate(used_results)]
     )
 
     answer = (
@@ -171,5 +179,5 @@ def chat_endpoint(req: ChatRequest):
 
     return {
         "answer": answer,
-        "contexts": results
+        "contexts": used_results
     }
