@@ -7,11 +7,10 @@ from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 from typing import List
 
-# Load FLAN‑T5 using text-generation (compatible with your environment)
+# ✅ Real summarizer (BART)
 GENERATOR = pipeline(
-    "text-generation",
-    model="google/flan-t5-small",
-    pad_token_id=0
+    "summarization",
+    model="facebook/bart-large-cnn"
 )
 
 EMBEDDINGS_FILE = "data/toe_embeddings.json"
@@ -90,19 +89,13 @@ def chat_endpoint(req: ChatRequest):
     # Combine retrieved chunks
     combined_text = "\n\n".join([r["text"] for r in results])
 
-    # Summarize using FLAN‑T5
-    prompt = (
-        "Summarize the following content clearly and concisely:\n\n"
-        + combined_text
-        + "\n\nSummary:"
-    )
-
+    # ✅ Summarize using BART
     summary = GENERATOR(
-        prompt,
-        max_length=256,
-        num_return_sequences=1,
+        combined_text,
+        max_length=250,
+        min_length=80,
         do_sample=False
-    )[0]["generated_text"]
+    )[0]["summary_text"]
 
     # Build citations
     citations = "\n".join(
