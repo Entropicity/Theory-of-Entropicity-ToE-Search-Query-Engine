@@ -95,23 +95,18 @@ def search_endpoint(req: SearchRequest):
 
 @app.post("/chat")
 def chat_endpoint(req: ChatRequest):
-    # Extract last user message
     user_messages = [m for m in req.messages if m.role == "user"]
     if not user_messages:
         return {"answer": "No user message provided.", "contexts": []}
 
     query = user_messages[-1].content
 
-    # Retrieve relevant chunks
     results = search(query, req.top_k)
-
-    # Combine retrieved chunks
     combined_text = "\n\n".join([r["text"] for r in results])
 
-    # Summarize using rule‑based summarizer
+    # NEW summarizer
     summary = simple_summarize(combined_text)
 
-    # Build citations
     citations = "\n".join(
         [f"[{i+1}] {r['source']} (score {r['score']:.3f})" for i, r in enumerate(results)]
     )
