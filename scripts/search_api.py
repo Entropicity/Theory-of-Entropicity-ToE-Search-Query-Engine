@@ -7,8 +7,8 @@ from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 from typing import List  # ⭐ REQUIRED
 
-# Load summarizer
-GENERATOR = pipeline("text-generation", model="gpt2")
+# Load generator (GPT-2)
+GENERATOR = pipeline("text-generation", model="gpt2", pad_token_id=50256)
 
 EMBEDDINGS_FILE = "data/toe_embeddings.json"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
@@ -73,6 +73,7 @@ def search_endpoint(req: SearchRequest):
 
 @app.post("/chat")
 def chat_endpoint(req: ChatRequest):
+    # Extract last user message
     user_messages = [m for m in req.messages if m.role == "user"]
     if not user_messages:
         return {"answer": "No user message provided.", "contexts": []}
@@ -85,7 +86,7 @@ def chat_endpoint(req: ChatRequest):
     # Combine retrieved chunks
     combined_text = "\n\n".join([r["text"] for r in results])
 
-    # Generate a summary-style answer
+    # Generate a summary-style answer using GPT-2
     prompt = (
         "Summarize the following content into a clear, concise explanation:\n\n"
         + combined_text
